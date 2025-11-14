@@ -342,6 +342,42 @@
             font-weight: bold;
         }
 
+        /* Sync Status */
+        .sync-status {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 10px 15px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 0.9rem;
+        }
+
+        .sync-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s infinite;
+        }
+
+        .sync-indicator.syncing {
+            background: #ff9800;
+        }
+
+        .sync-indicator.error {
+            background: #f44336;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
         /* Configuration Page Styles */
         .config-form {
             text-align: left;
@@ -409,23 +445,6 @@
         .data-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-            width: 100%;
-        }
-
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: 0;
-            top: 0;
-            opacity: 0;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
         }
 
         /* Photo Upload Styles */
@@ -626,30 +645,6 @@
             display: none;
         }
 
-        /* Instructions */
-        .instructions {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 20px;
-            margin: 20px 0;
-            border-left: 4px solid #ffcc00;
-        }
-
-        .instructions h3 {
-            color: #ffcc00;
-            margin-bottom: 10px;
-        }
-
-        .instructions ol {
-            text-align: left;
-            margin-left: 20px;
-        }
-
-        .instructions li {
-            margin-bottom: 8px;
-            line-height: 1.4;
-        }
-
         /* Mobile-friendly touch improvements */
         @media (max-width: 768px) {
             .container {
@@ -796,6 +791,13 @@
     <div class="container main-page">
         <h1>Love Projects</h1>
         <p class="subtitle">Enter password to access your content</p>
+        
+        <!-- Sync Status -->
+        <div class="sync-status" id="syncStatus">
+            <div class="sync-indicator" id="syncIndicator"></div>
+            <span id="syncText">Auto-save active</span>
+        </div>
+        
         <div class="password-input-container">
             <div class="password-input">
                 <input type="password" id="passwordInput" class="password-segment" placeholder="Enter your password">
@@ -814,31 +816,16 @@
 
         <!-- Data Management Section -->
         <div class="data-management">
-            <h3 style="color: #ffcc00; margin-bottom: 15px;">Sync Across Devices</h3>
-            <p style="margin-bottom: 15px; opacity: 0.9;">Export your data to use on other devices</p>
+            <h3 style="color: #ffcc00; margin-bottom: 15px;">Data Management</h3>
+            <p style="margin-bottom: 15px; opacity: 0.9;">Data is automatically saved every 5 minutes</p>
             <div class="data-buttons">
-                <button class="data-btn" onclick="exportDatabase()">
-                    <i class="fas fa-download"></i> Export Data
+                <button class="data-btn" onclick="forceSave()">
+                    <i class="fas fa-save"></i> Save Now
                 </button>
-                <div class="file-input-wrapper">
-                    <button class="data-btn">
-                        <i class="fas fa-upload"></i> Import Data
-                    </button>
-                    <input type="file" id="importFile" accept=".json" style="display: none;">
-                </div>
+                <button class="data-btn" onclick="loadFromBackup()">
+                    <i class="fas fa-sync"></i> Reload Data
+                </button>
             </div>
-        </div>
-
-        <!-- Instructions -->
-        <div class="instructions">
-            <h3>How to Sync Across Devices:</h3>
-            <ol>
-                <li>On your current device, click <strong>"Export Data"</strong> to download your database file</li>
-                <li>Transfer the downloaded file to your other device (email, cloud storage, USB, etc.)</li>
-                <li>On the other device, open this website and click <strong>"Import Data"</strong></li>
-                <li>Select the database file you transferred</li>
-                <li>Your data will now be synchronized across both devices!</li>
-            </ol>
         </div>
     </div>
 
@@ -979,19 +966,16 @@
                 <!-- Passwords will be listed here -->
             </div>
             <div class="data-buttons">
-                <button class="data-btn" onclick="exportDatabase()">
-                    <i class="fas fa-download"></i> Export Database
+                <button class="data-btn" onclick="forceSave()">
+                    <i class="fas fa-save"></i> Force Save
                 </button>
-                <div class="file-input-wrapper">
-                    <button class="data-btn">
-                        <i class="fas fa-upload"></i> Import Database
-                    </button>
-                    <input type="file" id="adminImportFile" accept=".json" style="display: none;">
-                </div>
+                <button class="data-btn" onclick="loadFromBackup()">
+                    <i class="fas fa-sync"></i> Reload Data
+                </button>
                 <button class="data-btn" style="background: linear-gradient(to right, #f46b45, #eea849);" onclick="resetDatabase()">
                     <i class="fas fa-trash"></i> Reset to Default
                 </button>
-                <button class="data-btn" style="background: linear-gradient(to right, #11998e, #38ef7d);" onclick="backupDatabase()">
+                <button class="data-btn" style="background: linear-gradient(to right, #11998e, #38ef7d);" onclick="createBackup()">
                     <i class="fas fa-copy"></i> Create Backup
                 </button>
             </div>
@@ -1045,12 +1029,39 @@
         let currentContent = null;
         let currentPhotoIndex = 0;
 
-        // Initialize database in localStorage if not exists
+        // Auto-save interval (5 minutes)
+        let autoSaveInterval;
+        const AUTO_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+        // ==================== CORE FUNCTIONS ====================
+
+        // Initialize database with backup system
         function initializeDatabase() {
-            if (!localStorage.getItem('passwordDatabase')) {
-                localStorage.setItem('passwordDatabase', JSON.stringify(embeddedDatabase));
+            const savedDB = localStorage.getItem('passwordDatabase');
+            const backupDB = localStorage.getItem('passwordDatabase_backup');
+            
+            if (savedDB) {
+                try {
+                    return JSON.parse(savedDB);
+                } catch (error) {
+                    console.error('Error loading main database, trying backup...');
+                }
             }
-            return JSON.parse(localStorage.getItem('passwordDatabase'));
+            
+            if (backupDB) {
+                try {
+                    const backupData = JSON.parse(backupDB);
+                    localStorage.setItem('passwordDatabase', backupDB);
+                    showMessage('Database restored from backup!', 'success', 'message');
+                    return backupData;
+                } catch (error) {
+                    console.error('Error loading backup database, using default...');
+                }
+            }
+            
+            localStorage.setItem('passwordDatabase', JSON.stringify(embeddedDatabase));
+            createBackup();
+            return embeddedDatabase;
         }
 
         // Get current database
@@ -1058,68 +1069,92 @@
             return JSON.parse(localStorage.getItem('passwordDatabase')) || embeddedDatabase;
         }
 
-        // Save database to localStorage
+        // Save database to localStorage with backup
         function saveDatabase(db) {
-            localStorage.setItem('passwordDatabase', JSON.stringify(db));
-            showMessage('Database saved successfully!', 'success', 'message');
+            try {
+                localStorage.setItem('passwordDatabase', JSON.stringify(db));
+                updateSyncStatus('saved');
+                return true;
+            } catch (error) {
+                console.error('Error saving database:', error);
+                updateSyncStatus('error');
+                return false;
+            }
         }
 
-        // Export database to JSON file
-        function exportDatabase() {
+        // Create a backup
+        function createBackup() {
             const db = getDatabase();
-            const dataStr = JSON.stringify(db, null, 2);
-            const dataBlob = new Blob([dataStr], {type: 'application/json'});
-            
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(dataBlob);
-            link.download = 'love-projects-database.json';
-            link.click();
-            
-            showMessage('Database exported successfully! Download the file and import it on other devices.', 'success', 'message');
+            localStorage.setItem('passwordDatabase_backup', JSON.stringify(db));
+            localStorage.setItem('passwordDatabase_lastBackup', new Date().toISOString());
         }
 
-        // Import database from JSON file
-        function importDatabase(file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
+        // Load from backup
+        function loadFromBackup() {
+            const backupDB = localStorage.getItem('passwordDatabase_backup');
+            if (backupDB) {
                 try {
-                    const importedData = JSON.parse(e.target.result);
-                    
-                    // Validate the imported data structure
-                    if (typeof importedData === 'object' && importedData !== null) {
-                        // Merge with existing data (optional: you can replace completely)
-                        const currentDB = getDatabase();
-                        const mergedDB = {...currentDB, ...importedData};
-                        
-                        saveDatabase(mergedDB);
-                        showMessage('Database imported successfully! The page will reload.', 'success', 'message');
-                        
-                        // Reload the page to reflect changes
-                        setTimeout(() => {
-                            location.reload();
-                        }, 2000);
-                    } else {
-                        throw new Error('Invalid file format');
-                    }
+                    const backupData = JSON.parse(backupDB);
+                    localStorage.setItem('passwordDatabase', backupDB);
+                    showMessage('Data reloaded from backup! Page will refresh.', 'success', 'message');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
                 } catch (error) {
-                    showMessage('Error importing database: Invalid file format', 'error', 'message');
+                    showMessage('Error loading backup!', 'error', 'message');
                 }
-            };
-            reader.readAsText(file);
+            } else {
+                showMessage('No backup found!', 'error', 'message');
+            }
         }
 
-        // Create a backup of the current database
-        function backupDatabase() {
+        // Force save current database
+        function forceSave() {
             const db = getDatabase();
-            const backupKey = 'passwordDatabase_backup_' + new Date().toISOString().split('T')[0];
-            localStorage.setItem(backupKey, JSON.stringify(db));
-            showMessage('Backup created successfully!', 'success', 'adminMessage');
+            if (saveDatabase(db)) {
+                createBackup();
+                showMessage('Data saved successfully!', 'success', 'message');
+            } else {
+                showMessage('Error saving data!', 'error', 'message');
+            }
+        }
+
+        // Start auto-save interval
+        function startAutoSave() {
+            autoSaveInterval = setInterval(() => {
+                const db = getDatabase();
+                if (saveDatabase(db)) {
+                    console.log('Auto-save completed at:', new Date().toLocaleTimeString());
+                }
+            }, AUTO_SAVE_INTERVAL);
+        }
+
+        // Update sync status display
+        function updateSyncStatus(status) {
+            const indicator = document.getElementById('syncIndicator');
+            const text = document.getElementById('syncText');
+            
+            switch(status) {
+                case 'saved':
+                    indicator.className = 'sync-indicator';
+                    text.textContent = 'Auto-save active';
+                    break;
+                case 'saving':
+                    indicator.className = 'sync-indicator syncing';
+                    text.textContent = 'Saving...';
+                    break;
+                case 'error':
+                    indicator.className = 'sync-indicator error';
+                    text.textContent = 'Save error';
+                    break;
+            }
         }
 
         // Reset database to default
         function resetDatabase() {
             if (confirm('Are you sure you want to reset the database to default? All custom passwords will be lost!')) {
                 localStorage.removeItem('passwordDatabase');
+                localStorage.removeItem('passwordDatabase_backup');
                 initializeDatabase();
                 displayPasswordsList();
                 showMessage('Database reset to default successfully!', 'success', 'adminMessage');
@@ -1133,6 +1168,268 @@
             setTimeout(() => {
                 container.innerHTML = '';
             }, 5000);
+        }
+
+        // ==================== PASSWORD VISIBILITY TOGGLE ====================
+
+        // Toggle password visibility
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('passwordInput');
+            const toggleButton = document.getElementById('togglePassword');
+            const icon = toggleButton.querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.className = 'fas fa-eye-slash';
+                toggleButton.title = 'Hide password';
+            } else {
+                passwordInput.type = 'password';
+                icon.className = 'fas fa-eye';
+                toggleButton.title = 'Show password';
+            }
+        }
+
+        // Check for admin password and show/hide admin button
+        function checkAdminAccess() {
+            const passwordInput = document.getElementById('passwordInput');
+            const adminBtn = document.getElementById('adminBtn');
+            
+            if (passwordInput.value === ADMIN_PASSWORD) {
+                adminBtn.classList.remove('hidden-admin');
+            } else {
+                adminBtn.classList.add('hidden-admin');
+            }
+        }
+
+        // ==================== PAGE NAVIGATION ====================
+
+        // Show specific page and hide others
+        function showPage(pageName) {
+            document.querySelectorAll('.content-page').forEach(page => {
+                page.style.display = 'none';
+            });
+            document.querySelector('.main-page').style.display = 'none';
+            
+            switch(pageName) {
+                case 'main':
+                    document.querySelector('.main-page').style.display = 'block';
+                    document.getElementById('passwordInput').value = '';
+                    document.getElementById('passwordInput').focus();
+                    document.getElementById('adminBtn').classList.add('hidden-admin');
+                    break;
+                case 'contentSelection':
+                    document.getElementById('contentSelectionPage').style.display = 'block';
+                    break;
+                case 'config':
+                    document.getElementById('configPage').style.display = 'block';
+                    document.getElementById('colorPicker').value = '#FFC0CB';
+                    document.getElementById('colorCode').value = '#FFC0CB';
+                    document.getElementById('colorPreview').style.background = '#FFC0CB';
+                    uploadedPhotos = [];
+                    updatePhotoPreviews();
+                    break;
+                case 'admin':
+                    document.getElementById('adminPage').style.display = 'block';
+                    displayPasswordsList();
+                    break;
+            }
+        }
+
+        // Show specific content page
+        function showContentPage(pageType) {
+            document.querySelectorAll('.content-page').forEach(page => {
+                page.style.display = 'none';
+            });
+            
+            switch(pageType) {
+                case 'text':
+                    document.getElementById('textPage').style.display = 'block';
+                    break;
+                case 'video':
+                    document.getElementById('videoPage').style.display = 'block';
+                    break;
+                case 'photos':
+                    document.getElementById('photosPage').style.display = 'block';
+                    break;
+            }
+        }
+
+        // ==================== PASSWORD CHECKING ====================
+
+        // Check password and show content selection
+        function checkPassword() {
+            const password = document.getElementById('passwordInput').value;
+            const messageDiv = document.getElementById('message');
+            const db = getDatabase();
+            
+            // First check if it's the admin password
+            if (password === ADMIN_PASSWORD) {
+                showPage('admin');
+                messageDiv.innerHTML = '';
+                return;
+            }
+            
+            if (db[password]) {
+                currentContent = db[password];
+                currentPhotoIndex = 0;
+                
+                // Update text page
+                document.getElementById('languageText').textContent = currentContent.languageText;
+                
+                // Update video page
+                document.getElementById('contentVideo').src = `https://www.youtube.com/embed/${currentContent.youtubeVideo}?autoplay=0&rel=0`;
+                
+                // Update photo slider
+                updatePhotoSlider();
+                
+                // Change background color
+                document.body.style.background = `linear-gradient(90deg, ${currentContent.backgroundColor} 0%, #FF2E51 100%)`;
+                
+                // Show content selection page
+                showPage('contentSelection');
+                messageDiv.innerHTML = '';
+            } else {
+                messageDiv.innerHTML = '<div class="message error">Invalid password! Please try again or create new content.</div>';
+                document.getElementById('passwordInput').focus();
+            }
+        }
+
+        // ==================== PHOTO SLIDER ====================
+
+        // Change photo in slider
+        function changePhoto(direction) {
+            const photos = currentContent.uploadedPhotos && currentContent.uploadedPhotos.length > 0 
+                ? currentContent.uploadedPhotos 
+                : currentContent.photos;
+            
+            currentPhotoIndex += direction;
+            
+            if (currentPhotoIndex < 0) {
+                currentPhotoIndex = photos.length - 1;
+            } else if (currentPhotoIndex >= photos.length) {
+                currentPhotoIndex = 0;
+            }
+            
+            updatePhotoSlider();
+        }
+
+        // Update photo slider
+        function updatePhotoSlider() {
+            const photoSlider = document.getElementById('photoSlider');
+            const photoCounter = document.getElementById('photoCounter');
+            const photos = currentContent.uploadedPhotos && currentContent.uploadedPhotos.length > 0 
+                ? currentContent.uploadedPhotos 
+                : currentContent.photos;
+            
+            photoSlider.innerHTML = '';
+            
+            photos.forEach((photo, index) => {
+                const slide = document.createElement('div');
+                slide.className = `photo-slide ${index === currentPhotoIndex ? 'active' : ''}`;
+                
+                if (currentContent.uploadedPhotos && currentContent.uploadedPhotos.length > 0) {
+                    const img = document.createElement('img');
+                    img.src = photo;
+                    img.alt = `Photo ${index + 1}`;
+                    slide.appendChild(img);
+                } else {
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'text-photo';
+                    textDiv.textContent = photo;
+                    slide.appendChild(textDiv);
+                }
+                
+                photoSlider.appendChild(slide);
+            });
+            
+            photoCounter.textContent = `${currentPhotoIndex + 1}/${photos.length}`;
+        }
+
+        // ==================== CONFIGURATION PAGE ====================
+
+        // Initialize color picker functionality
+        function initializeColorPicker() {
+            const colorPicker = document.getElementById('colorPicker');
+            const colorCode = document.getElementById('colorCode');
+            const colorPreview = document.getElementById('colorPreview');
+            const colorPresetsContainer = document.getElementById('colorPresets');
+
+            // Sync color picker with hex input
+            colorPicker.addEventListener('input', function() {
+                colorCode.value = this.value.toUpperCase();
+                colorPreview.style.background = this.value;
+            });
+
+            // Sync hex input with color picker
+            colorCode.addEventListener('input', function() {
+                let value = this.value.toUpperCase();
+                
+                // Add # if missing
+                if (!value.startsWith('#')) {
+                    value = '#' + value;
+                }
+                
+                // Validate hex color
+                if (/^#[0-9A-F]{6}$/i.test(value)) {
+                    colorPicker.value = value;
+                    colorPreview.style.background = value;
+                    this.value = value;
+                }
+            });
+
+            // Create color presets
+            colorPresets.forEach(color => {
+                const preset = document.createElement('div');
+                preset.className = 'color-preset';
+                preset.style.background = color;
+                preset.title = color;
+                preset.addEventListener('click', function() {
+                    colorPicker.value = color;
+                    colorCode.value = color;
+                    colorPreview.style.background = color;
+                });
+                colorPresetsContainer.appendChild(preset);
+            });
+        }
+
+        // Validate hex color
+        function isValidHexColor(color) {
+            return /^#[0-9A-F]{6}$/i.test(color);
+        }
+
+        // Initialize photo upload functionality
+        function initializePhotoUpload() {
+            const photoInput = document.getElementById('photoInput');
+            const uploadContainer = document.getElementById('photoUploadContainer');
+
+            // File input change
+            photoInput.addEventListener('change', (e) => {
+                handlePhotoUpload(Array.from(e.target.files));
+                photoInput.value = ''; // Reset input
+            });
+
+            // Drag and drop functionality
+            uploadContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadContainer.classList.add('drag-over');
+            });
+
+            uploadContainer.addEventListener('dragleave', () => {
+                uploadContainer.classList.remove('drag-over');
+            });
+
+            uploadContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadContainer.classList.remove('drag-over');
+                handlePhotoUpload(Array.from(e.dataTransfer.files));
+            });
+
+            // Click to upload
+            uploadContainer.addEventListener('click', (e) => {
+                if (e.target === uploadContainer || e.target.classList.contains('upload-icon') || e.target.classList.contains('upload-text')) {
+                    photoInput.click();
+                }
+            });
         }
 
         // Handle photo uploads
@@ -1206,29 +1503,86 @@
             });
         }
 
-        // [Rest of the functions remain the same as previous version...]
-        // (initializePhotoUpload, togglePasswordVisibility, checkAdminAccess, initializeColorPicker, isValidHexColor, showPage, showContentPage, changePhoto, updatePhotoSlider, checkPassword, saveConfiguration, displayPasswordsList)
+        // Save new configuration
+        function saveConfiguration() {
+            const newPassword = document.getElementById('newPassword').value;
+            const languageContent = document.getElementById('languageContent').value;
+            const youtubeLink = document.getElementById('youtubeLink').value;
+            const colorCode = document.getElementById('colorCode').value;
+            const messageDiv = document.getElementById('configMessage');
+            
+            if (!newPassword || !languageContent || !youtubeLink) {
+                messageDiv.innerHTML = '<div class="message error">Please fill all fields!</div>';
+                return;
+            }
+
+            if (!isValidHexColor(colorCode)) {
+                messageDiv.innerHTML = '<div class="message error">Please enter a valid hex color code (e.g., #FFC0CB)!</div>';
+                return;
+            }
+            
+            const db = getDatabase();
+            
+            if (db[newPassword]) {
+                messageDiv.innerHTML = '<div class="message error">Password already exists! Choose a different password.</div>';
+                return;
+            }
+            
+            // Save new configuration with uploaded photos
+            db[newPassword] = {
+                languageText: languageContent,
+                youtubeVideo: youtubeLink,
+                backgroundColor: colorCode.toUpperCase(),
+                photos: ["Photo 1", "Photo 2", "Photo 3", "Photo 4"], // Fallback text
+                uploadedPhotos: uploadedPhotos // Store actual uploaded images
+            };
+            
+            saveDatabase(db);
+            
+            messageDiv.innerHTML = '<div class="message success">Configuration saved successfully! You can now access it with your password: <strong>' + newPassword + '</strong></div>';
+            
+            // Clear form
+            document.getElementById('newPassword').value = '';
+            document.getElementById('languageContent').value = '';
+            document.getElementById('youtubeLink').value = '';
+            uploadedPhotos = [];
+            updatePhotoPreviews();
+        }
+
+        // ==================== ADMIN PANEL ====================
+
+        // Display all passwords in admin panel
+        function displayPasswordsList() {
+            const db = getDatabase();
+            const passwordsList = document.getElementById('passwordsList');
+            passwordsList.innerHTML = '';
+            
+            Object.keys(db).forEach(password => {
+                const passwordItem = document.createElement('div');
+                passwordItem.className = 'password-item';
+                const hasUploadedPhotos = db[password].uploadedPhotos && db[password].uploadedPhotos.length > 0;
+                passwordItem.innerHTML = `
+                    <strong>Password:</strong> ${password}<br>
+                    <strong>Color:</strong> <span style="color: ${db[password].backgroundColor}">${db[password].backgroundColor}</span><br>
+                    <strong>Photos:</strong> ${hasUploadedPhotos ? db[password].uploadedPhotos.length + ' uploaded' : '4 default'}<br>
+                    <strong>Text Preview:</strong> ${db[password].languageText.substring(0, 50)}...
+                `;
+                passwordsList.appendChild(passwordItem);
+            });
+        }
+
+        // ==================== EVENT LISTENERS ====================
 
         // Event listeners
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialize database, color picker, and photo upload
+            // Initialize database and start auto-save
             initializeDatabase();
+            startAutoSave();
+            
+            // Initialize other components
             initializeColorPicker();
             initializePhotoUpload();
             
-            // File import handlers
-            document.getElementById('importFile').addEventListener('change', function(e) {
-                if (e.target.files.length > 0) {
-                    importDatabase(e.target.files[0]);
-                }
-            });
-
-            document.getElementById('adminImportFile').addEventListener('change', function(e) {
-                if (e.target.files.length > 0) {
-                    importDatabase(e.target.files[0]);
-                }
-            });
-
             // Main page events
             document.getElementById('accessBtn').addEventListener('click', checkPassword);
             document.getElementById('configBtn').addEventListener('click', function() {
@@ -1270,13 +1624,7 @@
             
             // Focus on password input
             document.getElementById('passwordInput').focus();
-
-            // Display current database info
-            displayPasswordsList();
         });
-
-        // [Include all the other functions from the previous version here...]
-        // They remain exactly the same as in the previous code
     </script>
 </body>
 </html>
