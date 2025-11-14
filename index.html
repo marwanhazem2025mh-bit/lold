@@ -1227,7 +1227,7 @@
             document.getElementById('languageText').textContent = currentContent.languageText;
             
             // Update video page
-            document.getElementById('contentVideo').src = `https://www.youtube.com/embed/${currentContent.youtubeVideo}?autoplay=0&rel=0`;
+            document.getElementById('contentVideo').src = `${currentContent.youtubeVideo}?autoplay=1&rel=0`;
             
             // Update photo slider
             updatePhotoSlider();
@@ -1735,3 +1735,4 @@
 </script>
 </body>
 </html>
+
